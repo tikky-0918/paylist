@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, maximum-scale=1.0">
 <title>薪资追踪器</title>
 
 <!-- PWA -->
@@ -127,11 +127,13 @@
   }
   .field input {
     width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     background: var(--bg3);
     border: 1px solid var(--border2);
     border-radius: var(--radius-sm);
     padding: 8px 12px;
-    font-size: 14px;
+    font-size: 16px;
     color: var(--text);
     font-family: 'Inter', sans-serif;
     outline: none;
@@ -139,6 +141,7 @@
   }
   .field input:focus { border-color: var(--green); background: #fff; }
   .field input[type="time"] { font-family: 'JetBrains Mono', monospace; }
+  .field { min-width: 0; }
 
   /* Stat cards row */
   .stats-row {
@@ -396,7 +399,7 @@
     /* Settings: 月薪占满一行，时间两列 */
     .settings-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
     .settings-grid .field:first-child { grid-column: 1 / -1; }
-    .field input { font-size: 15px; padding: 10px 12px; }
+    .field input { font-size: 16px; padding: 10px 12px; }
 
     /* Stats: 2列 */
     .stats-row { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
