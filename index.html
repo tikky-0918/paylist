@@ -45,6 +45,12 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--bg); color
 .clock-pill { display:flex; align-items:center; gap:8px; background:var(--bg3); border:1px solid var(--border); border-radius:99px; padding:6px 14px; font-size:13px; font-family:'JetBrains Mono',monospace; color:var(--text2); white-space:nowrap; }
 .clock-dot { width:6px; height:6px; border-radius:50%; background:var(--sage); animation:blink 2s infinite; }
 .saved-pill { font-size:11px; font-weight:500; color:var(--text3); padding-right:2px; min-height:16px; }
+.city-tag { color:var(--sage); font-weight:600; cursor:pointer; border-bottom:1px dashed var(--sage); padding-bottom:1px; transition:opacity 0.15s; }
+.city-tag:hover { opacity:0.7; }
+.city-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.city-btn { padding:10px 6px; border-radius:var(--radius-sm); border:1.5px solid var(--border2); background:var(--bg3); font-size:13px; font-weight:500; color:var(--text2); cursor:pointer; text-align:center; transition:all 0.12s; }
+.city-btn:hover { background:var(--bg4); }
+.city-btn.active { border-color:var(--sage); background:var(--sage-dim2); color:var(--sage); font-weight:600; }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
 
 /* Cards */
@@ -204,7 +210,7 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--bg); color
   <div class="header">
     <div class="header-left">
       <h1>赚大钱历险记</h1>
-      <p id="month-title">加载中…</p>
+      <p id="month-title">加载中… · <span id="city-tag" class="city-tag">广州 ▾</span></p>
     </div>
     <div class="header-right">
       <div class="clock-pill"><span class="clock-dot"></span><span id="clock">--:--:--</span></div>
@@ -298,7 +304,19 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--bg); color
     <div class="tip">点击已过工作日 → 弹窗设置请假类型和时长</div>
   </div>
 
-  <div style="text-align:center;padding:20px 0 6px;font-size:11px;color:var(--text3);">v1.2.0</div>
+  <div style="text-align:center;padding:20px 0 6px;font-size:11px;color:var(--text3);">v1.3.0</div>
+</div>
+
+<!-- 城市选择弹窗 -->
+<div class="modal-overlay hidden" id="city-modal-overlay">
+  <div class="modal">
+    <div class="modal-title">选择城市</div>
+    <div class="modal-date">影响病假工资计算标准</div>
+    <div class="city-grid" id="city-grid"></div>
+    <div class="modal-btns" style="margin-top:16px;">
+      <button class="btn btn-cancel" id="city-modal-cancel" style="grid-column:1/-1;">取消</button>
+    </div>
+  </div>
 </div>
 
 <!-- 请假弹窗 -->
@@ -352,9 +370,29 @@ const CN_HOLIDAYS_2025 = new Set([
 ]);
 const CN_WORKDAYS_2025 = new Set(["2025-01-26","2025-02-08","2025-04-27","2025-09-28","2025-10-11"]);
 
-const GZ_MIN_MONTHLY = 2500;
-const AVG_WORK_DAYS  = 21.75;
-const SICK_HOURLY    = (GZ_MIN_MONTHLY / AVG_WORK_DAYS); // per day, divided by workHours when needed
+const AVG_WORK_DAYS = 21.75;
+
+/* ── 城市病假数据 ── */
+const CITY_DATA = {
+  '广州': { minWage: 2500, sickRatio: 1.0,  note: '广东省规定按最低工资全额发放' },
+  '深圳': { minWage: 2520, sickRatio: 1.0,  note: '广东省规定按最低工资全额发放' },
+  '上海': { minWage: 2740, sickRatio: 0.8,  note: '不低于最低工资标准的80%' },
+  '北京': { minWage: 2540, sickRatio: 0.8,  note: '不低于最低工资标准的80%' },
+  '杭州': { minWage: 2490, sickRatio: 0.8,  note: '不低于最低工资标准的80%' },
+  '南京': { minWage: 2490, sickRatio: 0.8,  note: '不低于最低工资标准的80%' },
+  '成都': { minWage: 2100, sickRatio: 0.8,  note: '不低于最低工资标准的80%' },
+  '重庆': { minWage: 2100, sickRatio: 0.8,  note: '不低于最低工资标准的80%' },
+  '武汉': { minWage: 2300, sickRatio: 0.8,  note: '不低于最低工资标准的80%' },
+  '西安': { minWage: 2100, sickRatio: 0.8,  note: '不低于最低工资标准的80%' },
+  '其他': { minWage: 2000, sickRatio: 0.8,  note: '按各地最低工资标准的80%估算' },
+};
+
+let currentCity = '广州';
+
+function getSickDailyRate() {
+  const c = CITY_DATA[currentCity] || CITY_DATA['其他'];
+  return (c.minWage * c.sickRatio) / AVG_WORK_DAYS;
+}
 
 /* ── 当前时间 ── */
 const now0      = new Date();
@@ -380,7 +418,8 @@ function saveSettings() {
     breakStart: document.getElementById('break-start').value,
     breakEnd:   document.getElementById('break-end').value,
     hasBreak:   document.getElementById('has-break').checked,
-    savedAt: ts
+    city:       currentCity,
+    savedAt:    ts
   }));
   const el = document.getElementById('saved-ts');
   if (el) el.textContent = '已于 ' + ts + ' 保存';
@@ -397,6 +436,7 @@ function loadSettings() {
     if (d.breakStart) document.getElementById('break-start').value = d.breakStart;
     if (d.breakEnd)   document.getElementById('break-end').value   = d.breakEnd;
     if (d.hasBreak !== undefined) document.getElementById('has-break').checked = d.hasBreak;
+    if (d.city && CITY_DATA[d.city]) currentCity = d.city;
     const el = document.getElementById('saved-ts');
     if (el && d.savedAt) el.textContent = '已于 ' + d.savedAt + ' 保存';
   } catch(e) {}
@@ -675,7 +715,7 @@ function update() {
   const totalWorkDays = getWorkdaysInMonth(CUR_YEAR, CUR_MONTH);
   const dailySalary   = totalWorkDays > 0 ? salary / totalWorkDays : 0;
   const hourlySalary  = workHours > 0 ? dailySalary / workHours : 0;
-  const sickHourly    = (GZ_MIN_MONTHLY / AVG_WORK_DAYS) / workHours;
+  const sickHourly    = workHours > 0 ? getSickDailyRate() / workHours : 0;
   const halfDay       = workHours / 2;
 
   // update work hours label
@@ -772,8 +812,9 @@ function update() {
 
   const sickNote = document.getElementById('sick-note');
   if (sickH > 0) {
+    const cd = CITY_DATA[currentCity] || CITY_DATA['其他'];
     sickNote.style.display = 'block';
-    sickNote.textContent = '病假按广州最低工资：2500 ÷ 21.75天 ÷ '+workHours.toFixed(1).replace('.0','')+'h ≈ '+fmt2(sickHourly)+' 元/h，共 '+sickH.toFixed(1).replace('.0','')+' h，合计 '+fmt2(sickPay)+' 元。';
+    sickNote.textContent = currentCity + '病假工资：' + cd.minWage + '元 × ' + (cd.sickRatio*100).toFixed(0) + '% ÷ 21.75天 ÷ ' + workHours.toFixed(1).replace('.0','') + 'h ≈ ' + fmt2(sickHourly) + ' 元/h，共 ' + sickH.toFixed(1).replace('.0','') + ' h，合计 ' + fmt2(sickPay) + ' 元。（' + cd.note + '）';
   } else { sickNote.style.display='none'; }
 
   const annualNote = document.getElementById('annual-note');
@@ -798,11 +839,51 @@ function tickClock() {
     String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0')+':'+String(n.getSeconds()).padStart(2,'0');
 }
 
+/* ── 城市选择弹窗 ── */
+function buildCityGrid() {
+  const grid = document.getElementById('city-grid');
+  grid.innerHTML = '';
+  Object.keys(CITY_DATA).forEach(city => {
+    const btn = document.createElement('button');
+    btn.className = 'city-btn' + (city === currentCity ? ' active' : '');
+    const cd = CITY_DATA[city];
+    btn.innerHTML = '<div>' + city + '</div><div style="font-size:10px;opacity:0.7;margin-top:2px;">' + cd.minWage + '元</div>';
+    btn.addEventListener('click', () => {
+      currentCity = city;
+      saveSettings();
+      updateCityTag();
+      buildCityGrid();
+      update();
+      document.getElementById('city-modal-overlay').classList.add('hidden');
+    });
+    grid.appendChild(btn);
+  });
+}
+
+function updateCityTag() {
+  document.getElementById('city-tag').textContent = currentCity + ' ▾';
+  document.getElementById('month-title').childNodes[0].textContent =
+    CUR_YEAR + '年' + mnNames[CUR_MONTH] + '月 · ';
+}
+
+document.getElementById('city-tag').addEventListener('click', () => {
+  buildCityGrid();
+  document.getElementById('city-modal-overlay').classList.remove('hidden');
+});
+document.getElementById('city-modal-cancel').addEventListener('click', () => {
+  document.getElementById('city-modal-overlay').classList.add('hidden');
+});
+document.getElementById('city-modal-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('city-modal-overlay'))
+    document.getElementById('city-modal-overlay').classList.add('hidden');
+});
+
 /* ── Boot ── */
 loadSettings();
 loadStates();
-document.getElementById('month-title').textContent = CUR_YEAR+'年'+mnNames[CUR_MONTH]+'月 · 广州';
-document.getElementById('cal-title').textContent   = CUR_YEAR+'年'+mnNames[CUR_MONTH]+'月';
+document.getElementById('month-title').childNodes[0].textContent = CUR_YEAR+'年'+mnNames[CUR_MONTH]+'月 · ';
+document.getElementById('city-tag').textContent = currentCity + ' ▾';
+document.getElementById('cal-title').textContent = CUR_YEAR+'年'+mnNames[CUR_MONTH]+'月';
 
 const settingIds = ['salary','insurance','start-time','end-time','break-start','break-end','has-break'];
 settingIds.forEach(id => {
@@ -824,7 +905,7 @@ setInterval(()=>{ tickClock(); update(); }, 1000);
 
 /* ── Service Worker ── */
 if('serviceWorker' in navigator){
-  const CV='salary-tracker-v1.2.0';
+  const CV='salary-tracker-v1.3.0';
   const sw=`const CACHE='${CV}';self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE).map(x=>caches.delete(x)))).then(()=>clients.claim())));self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(fetch(e.request).then(r=>{if(r.ok)caches.open(CACHE).then(c=>c.put(e.request,r.clone()));return r}).catch(()=>caches.match(e.request)));});`;
   navigator.serviceWorker.register(URL.createObjectURL(new Blob([sw],{type:'application/javascript'})),{scope:'./'}).catch(()=>{});
 }
